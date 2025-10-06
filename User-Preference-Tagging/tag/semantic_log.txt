@@ -1,0 +1,71 @@
+2025-07-10 14:05:37.282660 | "mithila art traditions" matched "hobbies_interests" with score 0.848
+2025-07-10 14:05:37.407805 | "shared values" matched "values_personality_traits" with score 0.95
+2025-07-10 14:05:37.457936 | "cultural warmth" matched "spiritual_religious" with score 0.869
+2025-07-10 14:53:56.216215 | "a calm and cooperative way" matched "values_personality_traits" with score 0.9
+2025-07-10 14:53:56.254996 | "her parents" matched "relocation" with score 0.835
+2025-07-10 14:53:56.312989 | "household needs" matched "profession" with score 0.883
+2025-07-10 14:53:56.360998 | "regional crafts" matched "hobbies_interests" with score 0.886
+2025-07-10 14:53:56.408780 | "madhubani painting" matched "hobbies_interests" with score 0.865
+2025-07-10 14:53:56.447128 | "local traditions" matched "spiritual_religious" with score 0.914
+2025-07-10 15:02:57.821417 | "a calm and cooperative way" matched "values_personality_traits" with score 0.9
+2025-07-10 15:02:57.860348 | "her parents" matched "relocation" with score 0.835
+2025-07-10 15:02:57.918221 | "household needs" matched "profession" with score 0.883
+2025-07-10 15:02:57.969954 | "regional crafts" matched "hobbies_interests" with score 0.886
+2025-07-10 15:02:58.027689 | "madhubani painting" matched "hobbies_interests" with score 0.865
+2025-07-10 15:02:58.071320 | "local traditions" matched "spiritual_religious" with score 0.914
+2025-07-10 15:28:52.802512 | "household duties" matched "profession" with score 0.922
+2025-07-10 15:28:52.865387 | "women's self-help groups" matched "profession" with score 0.847
+2025-07-10 15:28:52.907284 | "shared cultural values" matched "values_personality_traits" with score 0.928
+2025-07-10 15:30:34.065904 | "local celebrations" matched "spiritual_religious" with score 0.925
+2025-07-10 15:30:34.136732 | "a tailoring center" matched "profession" with score 0.922
+2025-07-10 15:30:34.196775 | "a local ngo" matched "profession" with score 0.917
+2025-07-10 15:30:34.241880 | "calm behavior" matched "values_personality_traits" with score 0.889
+2025-07-10 15:30:34.292278 | "cultural crafts" matched "hobbies_interests" with score 0.905
+2025-07-10 15:30:34.333483 | "mutual care" matched "values_personality_traits" with score 0.914
+2025-07-10 15:30:34.374764 | "shared values" matched "values_personality_traits" with score 0.95
+2025-07-10 15:32:00.947264 | "sitamarhi, bihar" matched "location" with score 0.863
+2025-07-10 15:32:01.037787 | "quiet routines" matched "hobbies_interests" with score 0.895
+2025-07-10 15:32:01.079712 | "a mindful distance" matched "spiritual_religious" with score 0.889
+2025-07-10 15:32:01.158237 | "the warmth" matched "values_personality_traits" with score 0.89
+2025-07-10 15:32:01.203831 | "emotional steadiness" matched "values_personality_traits" with score 0.905
+2025-07-10 15:32:01.245380 | "morning rituals" matched "spiritual_religious" with score 0.91
+2025-07-10 15:32:01.285326 | "mithila traditions" matched "spiritual_religious" with score 0.845
+2025-07-10 15:32:01.327294 | "genuine enthusiasm" matched "values_personality_traits" with score 0.91
+2025-07-10 15:32:01.376406 | "the art" matched "profession" with score 0.879
+2025-07-10 15:32:01.421706 | "simple living" matched "hobbies_interests" with score 0.914
+2025-07-11 09:43:01.739370 | "loved ones" matched "hobbies_interests" with score 0.875
+2025-07-11 09:43:01.797667 | "traditional meals" matched "hobbies_interests" with score 0.951
+2025-07-11 09:43:01.846612 | "local initiatives" matched "values_personality_traits" with score 0.867
+2025-07-11 09:43:01.889660 | "morning rituals" matched "spiritual_religious" with score 0.91
+2025-07-11 09:43:01.955668 | "mithila crafts" matched "profession" with score 0.846
+2025-07-11 09:43:02.071022 | "shared values" matched "values_personality_traits" with score 0.95
+2025-07-11 11:01:58.098907 | "that beautiful stage" matched "profession" with score 0.823
+2025-07-11 11:01:58.146697 | "her presence" matched "values_personality_traits" with score 0.889
+2025-07-11 11:01:58.198174 | "a steady charm and natural poise" matched "values_personality_traits" with score 0.876
+2025-07-11 11:01:58.269192 | "quiet acts" matched "spiritual_religious" with score 0.91
+2025-07-11 11:01:58.309566 | "morning prayer" matched "spiritual_religious" with score 0.897
+2025-07-11 11:01:58.351318 | "local music" matched "values_personality_traits" with score 0.866
+2025-07-11 11:01:58.436530 | "mutual ease" matched "values_personality_traits" with score 0.898
+2025-07-11 11:01:58.475921 | "enduring warmth" matched "values_personality_traits" with score 0.879
+2025-07-20 20:48:18.219511 | "simple habits" matched "hobbies_interests" with score 0.901
+2025-07-20 20:48:18.269725 | "traditional warmth" matched "hobbies_interests" with score 0.898
+2025-07-20 20:48:18.324901 | "her household" matched "profession" with score 0.875
+2025-07-20 20:48:18.385628 | "a local women’s cooperative" matched "values_personality_traits" with score 0.862
+2025-07-20 20:48:18.440787 | "quiet optimism" matched "values_personality_traits" with score 0.917
+2025-07-20 20:48:18.453534 | "morning prayer" matched "spiritual_religious" with score 0.897
+2025-07-20 20:48:18.514782 | "folk storytelling" matched "hobbies_interests" with score 0.927
+2025-07-20 20:48:18.568026 | "local events" matched "hobbies_interests" with score 0.876
+2025-07-20 20:48:18.581835 | "shared values" matched "values_personality_traits" with score 0.95
+2025-07-20 20:48:18.634106 | "quiet joys" matched "spiritual_religious" with score 0.921
+2025-07-20 20:48:18.706213 | "enduring care" matched "profession" with score 0.848
+2025-07-28 10:57:41.018713 | "bania (hindu" matched "profession" with score 0.936
+2025-07-28 10:57:41.394986 | "the spice rack" matched "profession" with score 0.812
+2025-07-28 10:57:41.555391 | "mindful routines" matched "spiritual_religious" with score 0.936
+2025-07-28 10:57:41.621148 | "a classroom" matched "profession" with score 0.857
+2025-07-28 10:57:41.744781 | "a gentle way" matched "hobbies_interests" with score 0.891
+2025-07-28 10:57:41.792133 | "her mornings" matched "hobbies_interests" with score 0.897
+2025-07-28 10:57:41.846691 | "folk crafts" matched "hobbies_interests" with score 0.926
+2025-07-28 10:57:41.908176 | "cultural care" matched "profession" with score 0.878
+2025-10-05 20:45:01.485159 | "a bride" matched "profession" with score 0.836
+2025-10-05 20:45:01.608085 | "cultural compatibility" matched "values_personality_traits" with score 0.869
+2025-10-05 20:45:01.692728 | "horoscope matching" matched "profession" with score 0.846
