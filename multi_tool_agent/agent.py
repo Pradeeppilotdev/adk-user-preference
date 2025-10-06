@@ -68,13 +68,13 @@ def summarize_preferences(text: str) -> Dict[str, Any]:
 # LLM-only extractor agent that outputs a fixed JSON schema for tags
 llm_extractor = LlmAgent(
     name="LLMTagExtractor",
-    model="gemini-2.5-pro",
+    model="gemini-2.0-flash",
     description=(
         "Extracts user preferences into a fixed JSON schema without using local CSVs."
     ),
     instruction=(
         "You extract structured preferences from input text. Output ONLY compact JSON with keys: "
-        "age, diet_lifestyle, education, hobbies_interests, language, location, profession, "
+        "gender, age, diet_lifestyle, education, hobbies_interests, language, location, profession, "
         "religion_caste, spiritual_religious, values_personality_traits. Each value is a list of strings. "
         "Use ranges for age when present (e.g., '24-28'). If unknown, output an empty list."
     ),
@@ -83,6 +83,21 @@ llm_extractor = LlmAgent(
 
 llm_extractor_tool = agent_tool.AgentTool(agent=llm_extractor)
 
+# Human approval agent for new keywords
+human_approver = LlmAgent(
+    name="HumanApprover",
+    model="gemini-2.0-flash",
+    description=(
+        "Manages human approval workflow for new keywords and preferences."
+    ),
+    instruction=(
+        "When new keywords are detected, present them clearly to the human for approval. "
+        "Ask simple yes/no questions or for corrections. Keep it conversational and natural."
+    ),
+    output_key="approval_result",
+)
+
+human_approver_tool = agent_tool.AgentTool(agent=human_approver)
 
 def start_human_review(text: str) -> Dict[str, Any]:
     """Produce a draft extraction for human-in-the-loop review.
@@ -139,18 +154,55 @@ def finalize_human_review(approved_json: str) -> Dict[str, Any]:
     return {"status": "success", "applied": applied}
 
 
-root_agent = Agent(
-    name="user_pref_tag_agent",
-    model="gemini-2.5-pro",
+# Smart conversation agent that automatically handles HITL
+conversation_agent = LlmAgent(
+    name="ConversationManager",
+    model="gemini-2.0-flash",
     description=(
-        "Agent that extracts structured user preference tags from freeform text using the local tagger."
+        "Manages natural conversations while automatically extracting and learning keywords."
     ),
     instruction=(
-        "Prefer using the LLMTagExtractor tool to extract tags into the fixed schema. "
-        "Use analyze_preferences only as a fallback/enricher. Provide concise summaries. "
-        "When needed, initiate human review and apply approved edits."
+        "You are a friendly assistant that helps users by asking questions to understand their preferences. "
+        "Your goal is to gradually learn about the user through natural conversation. "
+        "Ask thoughtful questions about their preferences, lifestyle, interests, profession, location, etc. "
+        "When they answer, use LLMTagExtractor to capture the information. "
+        "If you detect new or unclear keywords, use HumanApprover to confirm with the user. "
+        "Be conversational and curious - ask follow-up questions to learn more. "
+        "Remember what they've told you and reference it in future questions. "
+        "Never mention 'tools' or 'extraction' - just have natural conversations while learning."
     ),
-    tools=[llm_extractor_tool, analyze_preferences, summarize_preferences, start_human_review, finalize_human_review],
+    tools=[llm_extractor_tool, human_approver_tool, analyze_preferences, start_human_review, finalize_human_review],
+    output_key="conversation_response",
 )
+
+conversation_tool = agent_tool.AgentTool(agent=conversation_agent)
+
+
+# Simplified single agent approach to reduce API calls
+simple_agent = LlmAgent(
+    name="SimplePreferenceAgent",
+    model="gemini-2.0-flash",
+    description=(
+        "A single agent that systematically gathers user preferences for their ideal partner/bride."
+    ),
+    instruction=(
+        "You are a friendly assistant that helps users define their preferences for their ideal partner or bride/groom. "
+        "Greet ONCE per session (e.g., 'Hi! Great to meet you.'). Do not repeat greetings in later turns. "
+        "Immediately ask: 'Are you looking for a bride or a groom?' If not answered, briefly re-ask (without repeating the greeting). "
+        "However, ALWAYS extract any preference information the user provides in any turn (even if unrelated to the current question) and mark that category as captured. "
+        "Proceed through categories in this order: gender → age → profession → location → hobbies/interests → education → diet/lifestyle → language → religion/caste → spiritual/religious → values/personality traits. Ask ONE concise question for the next missing category only. "
+        "Never loop on the same category once captured unless the user changes it. Keep prompts short if user sends fillers like 'hey'. "
+        "When all categories are covered or the user says they're done: (1) provide a short, natural-language summary of the partner preferences; (2) call the LLMTagExtractor tool with a single-line summary of the captured partner preferences; (3) print the tool's returned JSON under a 'tags' section. "
+        "If the tool fails, still return your summary."
+    ),
+    tools=[llm_extractor_tool],
+    output_key="response",
+)
+
+simple_tool = agent_tool.AgentTool(agent=simple_agent)
+
+
+# Expose SimplePreferenceAgent directly as the root agent to avoid instruction interference
+root_agent = simple_agent
 
 
