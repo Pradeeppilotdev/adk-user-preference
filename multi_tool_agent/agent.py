@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import asyncio
 from typing import Dict, Any, List
 
 from google.adk.agents import Agent, LlmAgent
@@ -13,6 +14,9 @@ if TAG_DIR not in sys.path:
     sys.path.insert(0, TAG_DIR)
 
 import tag as tag_module  # type: ignore
+
+# Import the advanced NER pipeline
+from .advanced_ner import MatrimonyProfileExtractor
 
 
 def analyze_preferences(text: str) -> Dict[str, Any]:
@@ -63,6 +67,179 @@ def summarize_preferences(text: str) -> Dict[str, Any]:
         if values:
             parts.append(f"{tag_name}: {', '.join(values)}")
     return {"status": "success", "summary": "; ".join(parts)}
+
+
+async def extract_with_advanced_ner(text: str) -> Dict[str, Any]:
+    """Extract preferences using the advanced NER pipeline and normalize to tags schema.
+
+    Returns:
+        {
+          "status": "success",
+          "summary": str,
+          "tags": {<schema>},
+          "metadata": {...}
+        }
+    """
+    try:
+        extractor = MatrimonyProfileExtractor()
+        result = await extractor.extract_profile(text)
+
+        # Collect raw values (partner traits take precedence over user traits)
+        raw: Dict[str, Any] = {}
+        for trait, data in {**result.get("user_traits", {}), **result.get("partner_traits", {})}.items():
+            value = (data or {}).get("value")
+            if value:
+                raw[trait.lower()] = value
+
+        # Build normalized tags schema
+        tags: Dict[str, List[str]] = {
+            "gender": [],
+            "age": [],
+            "profession": [],
+            "location": [],
+            "hobbies_interests": [],
+            "education": [],
+            "diet_lifestyle": [],
+            "language": [],
+            "religion_caste": [],
+            "spiritual_religious": [],
+            "values_personality_traits": [],
+        }
+
+        def add(tag_key: str, value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, str):
+                v = value.strip()
+                if v and v.lower() not in [x.lower() for x in tags[tag_key]]:
+                    tags[tag_key].append(v)
+            elif isinstance(value, (list, tuple, set)):
+                for item in value:
+                    add(tag_key, item)
+
+        # Gender detection
+        gender_candidates = [
+            raw.get("partner_gender"), raw.get("gender"), raw.get("looking_for"), raw.get("occupation")
+        ]
+        for g in gender_candidates:
+            if not g:
+                continue
+            gl = str(g).strip().lower()
+            if gl in {"bride", "female", "woman", "girl"}:
+                add("gender", "bride")
+            elif gl in {"groom", "male", "man", "boy"}:
+                add("gender", "groom")
+
+        # Age range
+        min_age = raw.get("minage") or raw.get("min_age") or raw.get("age_min")
+        max_age = raw.get("maxage") or raw.get("max_age") or raw.get("age_max")
+        if min_age and max_age:
+            add("age", f"{min_age}-{max_age}")
+        elif raw.get("age"):
+            add("age", str(raw.get("age")))
+
+        # Education
+        for key in ["education", "educationlevel", "degree", "highest_education"]:
+            if raw.get(key):
+                add("education", raw.get(key))
+
+        # Profession
+        occupation_val = raw.get("occupation")
+        if occupation_val and str(occupation_val).strip().lower() not in {"bride", "groom"}:
+            add("profession", occupation_val)
+        for key in ["profession", "job_title", "work", "industry"]:
+            if raw.get(key):
+                add("profession", raw.get(key))
+
+        # Location (city/state/country)
+        for key in ["city", "state", "country", "location", "hometown", "origin"]:
+            if raw.get(key):
+                add("location", raw.get(key))
+
+        # Languages
+        for key in ["languagesknown", "language", "languages"]:
+            if raw.get(key):
+                add("language", raw.get(key))
+
+        # Diet & lifestyle
+        for key in ["diet", "diet_lifestyle", "lifestyle"]:
+            if raw.get(key):
+                add("diet_lifestyle", raw.get(key))
+
+        # Religion / caste
+        for key in ["religion", "caste", "religion_caste", "community"]:
+            if raw.get(key):
+                add("religion_caste", raw.get(key))
+
+        # Spiritual / religious
+        for key in ["spiritual", "spiritual_religious", "beliefs"]:
+            if raw.get(key):
+                add("spiritual_religious", raw.get(key))
+
+        # Hobbies / interests
+        for key in ["hobbies", "interests", "hobbies_interests"]:
+            if raw.get(key):
+                add("hobbies_interests", raw.get(key))
+        # Heuristics for travel & volunteering
+        text_l = (text or "").lower()
+        if "travel" in text_l or "travelling" in text_l or "traveling" in text_l:
+            add("hobbies_interests", "traveling")
+        if "volunteer" in text_l or "community work" in text_l:
+            add("hobbies_interests", "volunteering")
+
+        # Values / personality
+        for key in ["values", "personality", "values_personality_traits", "traits"]:
+            if raw.get(key):
+                add("values_personality_traits", raw.get(key))
+        # Additional heuristics from text
+        for phrase in [
+            ("open-minded", "open-minded"),
+            ("respectful", "respectful"),
+            ("traditions", "respectful of traditions"),
+            ("chill", "chill")
+        ]:
+            if phrase[0] in text_l:
+                add("values_personality_traits", phrase[1])
+
+        # Build concise natural-language summary
+        parts: List[str] = []
+        if tags["gender"]:
+            parts.append(f"looking for a {tags['gender'][0]}")
+        if tags["age"]:
+            parts.append(f"aged {tags['age'][0]}")
+        if tags["location"]:
+            parts.append(f"from {', '.join(tags['location'])}")
+        if tags["profession"]:
+            parts.append(f"profession: {', '.join(tags['profession'])}")
+        if tags["education"]:
+            parts.append(f"education: {', '.join(tags['education'])}")
+        if tags["language"]:
+            parts.append(f"speaks {', '.join(tags['language'])}")
+        if tags["diet_lifestyle"]:
+            parts.append(f"diet: {', '.join(tags['diet_lifestyle'])}")
+        if tags["hobbies_interests"]:
+            parts.append(f"interests: {', '.join(tags['hobbies_interests'])}")
+        if tags["religion_caste"]:
+            parts.append(f"religion/caste: {', '.join(tags['religion_caste'])}")
+        if tags["spiritual_religious"]:
+            parts.append(f"spiritual/religious: {', '.join(tags['spiritual_religious'])}")
+        if tags["values_personality_traits"]:
+            parts.append(f"values: {', '.join(tags['values_personality_traits'])}")
+
+        summary = "; ".join(parts) if parts else "No clear partner preferences detected yet."
+
+        return {
+            "status": "success",
+            "summary": summary,
+            "tags": tags,
+            "metadata": result.get("_metadata", {}),
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_message": f"Advanced NER extraction failed: {str(e)}",
+        }
 
 
 # LLM-only extractor agent that outputs a fixed JSON schema for tags
@@ -183,19 +360,22 @@ simple_agent = LlmAgent(
     name="SimplePreferenceAgent",
     model="gemini-2.0-flash",
     description=(
-        "A single agent that systematically gathers user preferences for their ideal partner/bride."
+        "A single agent that systematically gathers user preferences for their ideal partner/bride using advanced NER."
     ),
     instruction=(
-        "You are a friendly assistant that helps users define their preferences for their ideal partner or bride/groom. "
+        "You are a friendly assistant that helps users define their preferences for their ideal partner using advanced NER extraction. "
+        "CRITICAL: After EVERY user response, you MUST call extract_with_advanced_ner to analyze their input and show a clean summary plus a JSON 'tags' object. "
         "Greet ONCE per session (e.g., 'Hi! Great to meet you.'). Do not repeat greetings in later turns. "
-        "Immediately ask: 'Are you looking for a bride or a groom?' If not answered, briefly re-ask (without repeating the greeting). "
+        "If the user mentions 'bride', 'groom', 'male', 'female', or similar terms, consider gender captured and move to the next category. "
+        "If gender is not clear from their initial message, ask: 'Are you looking for a bride or a groom?' "
         "However, ALWAYS extract any preference information the user provides in any turn (even if unrelated to the current question) and mark that category as captured. "
         "Proceed through categories in this order: gender → age → profession → location → hobbies/interests → education → diet/lifestyle → language → religion/caste → spiritual/religious → values/personality traits. Ask ONE concise question for the next missing category only. "
+        "RESPONSE FORMAT: After each user response: (1) Call extract_with_advanced_ner; (2) Present a short natural-language summary; (3) Print a 'tags' JSON block with the normalized schema; (4) Ask the next question. "
         "Never loop on the same category once captured unless the user changes it. Keep prompts short if user sends fillers like 'hey'. "
-        "When all categories are covered or the user says they're done: (1) provide a short, natural-language summary of the partner preferences; (2) call the LLMTagExtractor tool with a single-line summary of the captured partner preferences; (3) print the tool's returned JSON under a 'tags' section. "
-        "If the tool fails, still return your summary."
+        "When all categories are covered or the user says they're done: (1) provide a concise final summary; (2) call extract_with_advanced_ner one final time; (3) print the final 'tags' JSON only. "
+        "Do NOT include emojis or confidence scores."
     ),
-    tools=[llm_extractor_tool],
+    tools=[extract_with_advanced_ner],
     output_key="response",
 )
 
