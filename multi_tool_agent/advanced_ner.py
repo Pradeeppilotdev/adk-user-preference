@@ -767,15 +767,28 @@ OUTPUT FORMAT - Return ONLY valid JSON:
     "category_name": {{"value": "extracted_value", "confidence": 0.XX}}
 }}"""
 
-            # Use maximum determinism settings
-            response = await asyncio.to_thread(
-                self.openai_client.chat.completions.create,
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,        # Max determinism
-                max_tokens=800,
-                timeout=30
-            )
+            # Use maximum determinism settings - try different models
+            models_to_try = ["gpt-4o-mini"]
+            response = None
+            
+            for model in models_to_try:
+                try:
+                    response = await asyncio.to_thread(
+                        self.openai_client.chat.completions.create,
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,        # Max determinism
+                        max_tokens=800,
+                        timeout=30
+                    )
+                    break  # Success, exit the loop
+                except Exception as e:
+                    logger.warning(f"Failed to use model {model}: {str(e)}")
+                    continue
+            
+            if response is None:
+                logger.warning("All OpenAI models failed, falling back to deterministic extraction only")
+                return deterministic_results
             
             result_text = response.choices[0].message.content.strip()
             

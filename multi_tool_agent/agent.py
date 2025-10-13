@@ -84,17 +84,15 @@ async def extract_with_advanced_ner(text: str, conversation_context: str = "") -
         # Combine current text with conversation context for better extraction
         full_text = f"{conversation_context}\n{text}" if conversation_context else text
         
-        extractor = MatrimonyProfileExtractor()
+        # Use the advanced NER pipeline directly
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        extractor = MatrimonyProfileExtractor(openai_api_key=openai_api_key)
         result = await extractor.extract_profile(full_text)
 
-        # Collect raw values (partner traits take precedence over user traits)
-        raw: Dict[str, Any] = {}
-        for trait, data in {**result.get("user_traits", {}), **result.get("partner_traits", {})}.items():
-            value = (data or {}).get("value")
-            if value:
-                raw[trait.lower()] = value
-
-        # Build normalized tags schema
+        # Build normalized tags schema from advanced NER results
         tags: Dict[str, List[str]] = {
             "gender": [],
             "age": [],
@@ -110,7 +108,7 @@ async def extract_with_advanced_ner(text: str, conversation_context: str = "") -
         }
 
         def add(tag_key: str, value: Any) -> None:
-            if value is None:
+            if value is None or not value:
                 return
             if isinstance(value, str):
                 v = value.strip()
@@ -120,205 +118,179 @@ async def extract_with_advanced_ner(text: str, conversation_context: str = "") -
                 for item in value:
                     add(tag_key, item)
 
-        # Gender detection
-        gender_candidates = [
-            raw.get("partner_gender"), raw.get("gender"), raw.get("looking_for"), raw.get("occupation")
-        ]
-        for g in gender_candidates:
-            if not g:
-                continue
-            gl = str(g).strip().lower()
-            if gl in {"bride", "female", "woman", "girl"}:
+        # Map advanced NER results to our schema
+        user_traits = result.get("user_traits", {})
+        partner_traits = result.get("partner_traits", {})
+        
+        # Gender mapping - check for "bride" in text if not found in NER
+        sex = partner_traits.get("sex", {}).get("value", "")
+        if sex:
+            if sex.lower() in ["female", "woman", "girl"]:
                 add("gender", "bride")
-            elif gl in {"groom", "male", "man", "boy"}:
+            elif sex.lower() in ["male", "man", "boy"]:
                 add("gender", "groom")
+        elif "bride" in full_text.lower():
+            add("gender", "bride")
+        elif "groom" in full_text.lower():
+            add("gender", "groom")
 
-        # Age range - handle various formats
-        min_age = raw.get("minage") or raw.get("min_age") or raw.get("age_min")
-        max_age = raw.get("maxage") or raw.get("max_age") or raw.get("age_max")
+        # Age mapping
+        min_age = partner_traits.get("minAge", {}).get("value", "")
+        max_age = partner_traits.get("maxAge", {}).get("value", "")
         if min_age and max_age:
             add("age", f"{min_age}-{max_age}")
-        elif raw.get("age"):
-            add("age", str(raw.get("age")))
-        
-        # Handle age ranges in text (e.g., "25-29", "between 25 and 29")
-        text_l = (full_text or "").lower()
-        import re
-        age_patterns = [
-            r'(\d+)\s*[-–]\s*(\d+)',  # 25-29 or 25–29 (en dash)
-            r'between\s+(\d+)\s+and\s+(\d+)',  # between 25 and 29
-            r'(\d+)\s+to\s+(\d+)',  # 25 to 29
-        ]
-        for pattern in age_patterns:
-            match = re.search(pattern, text_l)
-            if match:
-                add("age", f"{match.group(1)}-{match.group(2)}")
-                break
+        elif min_age:
+            add("age", min_age)
+        elif max_age:
+            add("age", max_age)
 
-        # Education
-        for key in ["education", "educationlevel", "degree", "highest_education"]:
-            if raw.get(key):
-                add("education", raw.get(key))
-        
-        # Handle education keywords in text
-        education_keywords = {
-            "postgraduate degree": ["postgraduate", "post graduate", "masters", "mba", "ms", "ma", "mtech"],
-            "undergraduate degree": ["undergraduate", "under graduate", "bachelor", "btech", "be", "bcom", "ba", "ug degree"],
-            "degree": ["degree", "graduation", "graduate"],
-        }
-        for education, keywords in education_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("education", education)
-                    break
+        # Education mapping - improve education detection
+        education = partner_traits.get("educationLevel", {}).get("value", "")
+        if education and education.lower() not in ["be", "someone"]:
+            add("education", education)
+        elif "postgraduate" in full_text.lower() or "masters" in full_text.lower() or "mba" in full_text.lower():
+            add("education", "postgraduate degree")
+        elif "degree" in full_text.lower():
+            add("education", "degree")
 
-        # Profession - handle various formats
-        occupation_val = raw.get("occupation")
-        if occupation_val and str(occupation_val).strip().lower() not in {"bride", "groom"}:
-            add("profession", occupation_val)
-        for key in ["profession", "job_title", "work", "industry"]:
-            if raw.get(key):
-                add("profession", raw.get(key))
+        # Profession mapping - improve profession detection
+        occupation = partner_traits.get("occupation", {}).get("value", "")
+        if occupation and occupation.lower() not in ["bride", "groom", "someone"]:
+            add("profession", occupation)
         
-        # Handle profession keywords in text
-        profession_keywords = {
-            "engineering": ["engineering", "engineer", "technical"],
-            "teaching": ["teaching", "teacher", "education", "educator"],
-            "medicine": ["medicine", "medical", "doctor", "physician", "healthcare"],
-            "law": ["law", "legal", "lawyer", "attorney"],
-            "business": ["business", "management", "corporate"],
-            "technology": ["technology", "tech", "software", "IT", "computer"],
-            "computer science": ["computer science", "cs", "programming", "software engineering"],
-            "economics": ["economics", "economic", "finance", "banking"],
-        }
-        for profession, keywords in profession_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("profession", profession)
-                    break
+        # Extract professions from text
+        text_l = full_text.lower()
+        if "computer science" in text_l:
+            add("profession", "computer science")
+        if "economics" in text_l:
+            add("profession", "economics")
+        if "law" in text_l:
+            add("profession", "law")
+        if "engineering" in text_l:
+            add("profession", "engineering")
+        if "medicine" in text_l or "medical" in text_l:
+            add("profession", "medicine")
+        if "media" in text_l:
+            add("profession", "media")
+        if "design" in text_l:
+            add("profession", "design")
+        if "tech" in text_l or "technology" in text_l:
+            add("profession", "tech")
 
-        # Location (city/state/country) - be more careful about what we consider location
-        for key in ["city", "state", "country", "location", "hometown", "origin"]:
-            if raw.get(key):
-                location_val = str(raw.get(key)).strip()
-                # Don't add profession words as locations
-                profession_words = ["engineering", "teaching", "medicine", "doctor", "teacher", "engineer", "an engineering", "a teaching", "a medical"]
-                if location_val.lower() not in profession_words and not location_val.lower().startswith("an ") and not location_val.lower().startswith("a "):
-                    add("location", location_val)
+        # Location mapping - fix location extraction
+        city = partner_traits.get("city", {}).get("value", "")
+        state = partner_traits.get("state", {}).get("value", "")
         
-        # Handle location keywords in text
-        location_keywords = {
-            "Chennai": ["chennai", "madras"],
-            "Coimbatore": ["coimbatore"],
-            "South India": ["south india", "southern india"],
-            "Tamil Nadu": ["tamil nadu", "tamilnadu", "tn"],
-            "Madurai": ["madurai"],
-        }
-        for location, keywords in location_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("location", location)
-                    break
-
-        # Languages
-        for key in ["languagesknown", "language", "languages"]:
-            if raw.get(key):
-                add("language", raw.get(key))
+        # Filter out incorrect location extractions
+        if city and not any(word in city.lower() for word in ["tamil", "brahmin", "background", "someone", "liberal", "urban", "family"]):
+            add("location", city)
+        if state:
+            add("location", state)
         
-        # Handle language keywords in text
-        language_keywords = {
-            "English": ["english", "fluent english", "english is a must"],
-            "Tamil": ["tamil", "knowing tamil", "tamil is a big plus"],
-        }
-        for language, keywords in language_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("language", language)
-                    break
+        # Extract locations from text
+        if "chennai" in text_l:
+            add("location", "Chennai")
+        if "coimbatore" in text_l:
+            add("location", "Coimbatore")
+        if "south india" in text_l:
+            add("location", "South India")
+        if "tamil nadu" in text_l:
+            add("location", "Tamil Nadu")
+        if "liberal urban family" in text_l:
+            add("location", "urban")
 
-        # Diet & lifestyle
-        for key in ["diet", "diet_lifestyle", "lifestyle"]:
-            if raw.get(key):
-                add("diet_lifestyle", raw.get(key))
+        # Language mapping
+        languages = partner_traits.get("languagesKnown", {}).get("value", "")
+        if languages:
+            add("language", languages)
         
-        # Handle diet/lifestyle keywords in text
-        diet_keywords = {
-            "vegetarian": ["vegetarian", "veg"],
-            "non-smoker": ["non-smoker", "non smoker", "no smoking", "doesn't smoke"],
-            "non-drinker": ["non-drinker", "non drinker", "no drinking", "doesn't drink"],
-        }
-        for diet, keywords in diet_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("diet_lifestyle", diet)
-                    break
+        # Extract languages from text
+        if "english" in text_l and "fluent" in text_l:
+            add("language", "English")
+        if "tamil" in text_l:
+            add("language", "Tamil")
 
-        # Religion / caste
-        for key in ["religion", "caste", "religion_caste", "community"]:
-            if raw.get(key):
-                add("religion_caste", raw.get(key))
-
-        # Spiritual / religious
-        for key in ["spiritual", "spiritual_religious", "beliefs"]:
-            if raw.get(key):
-                add("spiritual_religious", raw.get(key))
+        # Diet & lifestyle mapping
+        diet = partner_traits.get("dietPreferences", {}).get("value", "")
+        if diet:
+            add("diet_lifestyle", diet)
         
-        # Handle spiritual/religious keywords in text
-        spiritual_keywords = {
-            "spiritual but not overly religious": ["spiritual but not overly religious", "spiritual but not religious"],
-            "spiritual": ["spiritual", "spirituality"],
-            "religious": ["religious", "religion"],
-        }
-        for spiritual, keywords in spiritual_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("spiritual_religious", spiritual)
-                    break
-
-        # Hobbies / interests
-        for key in ["hobbies", "interests", "hobbies_interests"]:
-            if raw.get(key):
-                add("hobbies_interests", raw.get(key))
+        # Extract diet preferences from text with better logic
+        if "non-vegetarian" in text_l or "non vegetarian" in text_l or "non-veg" in text_l or "non veg" in text_l:
+            add("diet_lifestyle", "non-vegetarian")
+        elif "vegetarian" in text_l and "non-vegetarian" not in text_l and "non vegetarian" not in text_l:
+            add("diet_lifestyle", "vegetarian")
         
-        # Handle hobbies/interests keywords in text
-        hobby_keywords = {
-            "traveling": ["travel", "travelling", "traveling", "trip", "vacation"],
-            "reading": ["reading", "books", "literature"],
-            "music": ["music", "musical", "singing", "instrument"],
-            "yoga": ["yoga", "meditation"],
-            "classical dance": ["classical dance", "dance", "bharatanatyam", "kathak"],
-            "volunteering": ["volunteer", "community work", "social work"],
-        }
-        for hobby, keywords in hobby_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("hobbies_interests", hobby)
-                    break
-
-        # Values / personality
-        for key in ["values", "personality", "values_personality_traits", "traits"]:
-            if raw.get(key):
-                add("values_personality_traits", raw.get(key))
+        smoking = partner_traits.get("smokingHabits", {}).get("value", "")
+        if smoking and smoking.lower() in ["no", "non-smoker"]:
+            add("diet_lifestyle", "non-smoker")
+        elif "non-smoker" in text_l or "non smoker" in text_l:
+            add("diet_lifestyle", "non-smoker")
         
-        # Handle values/personality keywords in text
-        values_keywords = {
-            "honesty": ["honesty", "honest", "truthful"],
-            "patience": ["patience", "patient"],
-            "emotional maturity": ["emotional maturity", "mature", "maturity"],
-            "respectful of traditions": ["traditions", "traditional", "respectful of traditions"],
-            "modern perspectives": ["modern", "modern perspectives", "contemporary"],
-            "personal freedom": ["personal freedom", "freedom", "independence"],
-            "open-minded": ["open-minded", "open minded"],
-            "chill": ["chill", "relaxed", "easy-going"],
-            "family values": ["family values", "family", "family time"],
-            "respects elders": ["respects elders", "respectful of elders", "elder respect"],
-            "enjoys family time": ["enjoys family time", "family time", "spending time with family"],
-        }
-        for value, keywords in values_keywords.items():
-            for keyword in keywords:
-                if keyword in text_l:
-                    add("values_personality_traits", value)
-                    break
+        drinking = partner_traits.get("drinkingHabits", {}).get("value", "")
+        if drinking and drinking.lower() in ["no", "non-drinker"]:
+            add("diet_lifestyle", "non-drinker")
+        elif "non-drinker" in text_l or "non drinker" in text_l:
+            add("diet_lifestyle", "non-drinker")
+        elif "social drinking" in text_l or "occasional drinking" in text_l or "occasional social drinking" in text_l:
+            add("diet_lifestyle", "social drinking")
+
+        # Religion & caste mapping
+        religion = partner_traits.get("religion", {}).get("value", "")
+        caste = partner_traits.get("caste", {}).get("value", "")
+        if religion:
+            add("religion_caste", religion)
+        if caste:
+            add("religion_caste", caste)
+
+        # Spiritual/religious mapping
+        lifestyle = partner_traits.get("lifestyle", {}).get("value", "")
+        if lifestyle and "spiritual" in lifestyle.lower():
+            add("spiritual_religious", lifestyle)
+        elif "spiritual but not overly religious" in text_l:
+            add("spiritual_religious", "spiritual but not overly religious")
+
+        # Hobbies & interests mapping
+        hobbies = user_traits.get("hobbiesAndInterests", {}).get("value", "")
+        if hobbies:
+            add("hobbies_interests", hobbies)
+        
+        travel = user_traits.get("travelPreferences", {}).get("value", "")
+        if travel:
+            add("hobbies_interests", travel)
+        
+        sports = user_traits.get("sportsAndFitness", {}).get("value", "")
+        if sports:
+            add("hobbies_interests", sports)
+        
+        # Extract hobbies from text
+        if "reading" in text_l:
+            add("hobbies_interests", "reading")
+        if "music" in text_l:
+            add("hobbies_interests", "music")
+        if "travel" in text_l:
+            add("hobbies_interests", "travel")
+        if "yoga" in text_l:
+            add("hobbies_interests", "yoga")
+        if "classical dance" in text_l or "dance" in text_l:
+            add("hobbies_interests", "classical dance")
+
+        # Values & personality mapping
+        personality = partner_traits.get("personalityTraits", {}).get("value", "")
+        if personality:
+            add("values_personality_traits", personality)
+        
+        family_values = partner_traits.get("familyValuesAlignment", {}).get("value", "")
+        if family_values:
+            add("values_personality_traits", family_values)
+        
+        # Extract values from text
+        if "family values" in text_l:
+            add("values_personality_traits", "family values")
+        if "respects elders" in text_l or "respectful of elders" in text_l:
+            add("values_personality_traits", "respects elders")
+        if "traditions" in text_l:
+            add("values_personality_traits", "respectful of traditions")
 
         # Build concise natural-language summary
         parts: List[str] = []
