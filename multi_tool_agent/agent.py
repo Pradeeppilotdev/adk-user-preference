@@ -69,7 +69,7 @@ def summarize_preferences(text: str) -> Dict[str, Any]:
     return {"status": "success", "summary": "; ".join(parts)}
 
 
-async def extract_with_advanced_ner(text: str) -> Dict[str, Any]:
+async def extract_with_advanced_ner(text: str, conversation_context: str = "") -> Dict[str, Any]:
     """Extract preferences using the advanced NER pipeline and normalize to tags schema.
 
     Returns:
@@ -81,8 +81,11 @@ async def extract_with_advanced_ner(text: str) -> Dict[str, Any]:
         }
     """
     try:
+        # Combine current text with conversation context for better extraction
+        full_text = f"{conversation_context}\n{text}" if conversation_context else text
+        
         extractor = MatrimonyProfileExtractor()
-        result = await extractor.extract_profile(text)
+        result = await extractor.extract_profile(full_text)
 
         # Collect raw values (partner traits take precedence over user traits)
         raw: Dict[str, Any] = {}
@@ -130,41 +133,125 @@ async def extract_with_advanced_ner(text: str) -> Dict[str, Any]:
             elif gl in {"groom", "male", "man", "boy"}:
                 add("gender", "groom")
 
-        # Age range
+        # Age range - handle various formats
         min_age = raw.get("minage") or raw.get("min_age") or raw.get("age_min")
         max_age = raw.get("maxage") or raw.get("max_age") or raw.get("age_max")
         if min_age and max_age:
             add("age", f"{min_age}-{max_age}")
         elif raw.get("age"):
             add("age", str(raw.get("age")))
+        
+        # Handle age ranges in text (e.g., "25-29", "between 25 and 29")
+        text_l = (full_text or "").lower()
+        import re
+        age_patterns = [
+            r'(\d+)\s*[-–]\s*(\d+)',  # 25-29 or 25–29 (en dash)
+            r'between\s+(\d+)\s+and\s+(\d+)',  # between 25 and 29
+            r'(\d+)\s+to\s+(\d+)',  # 25 to 29
+        ]
+        for pattern in age_patterns:
+            match = re.search(pattern, text_l)
+            if match:
+                add("age", f"{match.group(1)}-{match.group(2)}")
+                break
 
         # Education
         for key in ["education", "educationlevel", "degree", "highest_education"]:
             if raw.get(key):
                 add("education", raw.get(key))
+        
+        # Handle education keywords in text
+        education_keywords = {
+            "postgraduate degree": ["postgraduate", "post graduate", "masters", "mba", "ms", "ma", "mtech"],
+            "undergraduate degree": ["undergraduate", "under graduate", "bachelor", "btech", "be", "bcom", "ba", "ug degree"],
+            "degree": ["degree", "graduation", "graduate"],
+        }
+        for education, keywords in education_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("education", education)
+                    break
 
-        # Profession
+        # Profession - handle various formats
         occupation_val = raw.get("occupation")
         if occupation_val and str(occupation_val).strip().lower() not in {"bride", "groom"}:
             add("profession", occupation_val)
         for key in ["profession", "job_title", "work", "industry"]:
             if raw.get(key):
                 add("profession", raw.get(key))
+        
+        # Handle profession keywords in text
+        profession_keywords = {
+            "engineering": ["engineering", "engineer", "technical"],
+            "teaching": ["teaching", "teacher", "education", "educator"],
+            "medicine": ["medicine", "medical", "doctor", "physician", "healthcare"],
+            "law": ["law", "legal", "lawyer", "attorney"],
+            "business": ["business", "management", "corporate"],
+            "technology": ["technology", "tech", "software", "IT", "computer"],
+            "computer science": ["computer science", "cs", "programming", "software engineering"],
+            "economics": ["economics", "economic", "finance", "banking"],
+        }
+        for profession, keywords in profession_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("profession", profession)
+                    break
 
-        # Location (city/state/country)
+        # Location (city/state/country) - be more careful about what we consider location
         for key in ["city", "state", "country", "location", "hometown", "origin"]:
             if raw.get(key):
-                add("location", raw.get(key))
+                location_val = str(raw.get(key)).strip()
+                # Don't add profession words as locations
+                profession_words = ["engineering", "teaching", "medicine", "doctor", "teacher", "engineer", "an engineering", "a teaching", "a medical"]
+                if location_val.lower() not in profession_words and not location_val.lower().startswith("an ") and not location_val.lower().startswith("a "):
+                    add("location", location_val)
+        
+        # Handle location keywords in text
+        location_keywords = {
+            "Chennai": ["chennai", "madras"],
+            "Coimbatore": ["coimbatore"],
+            "South India": ["south india", "southern india"],
+            "Tamil Nadu": ["tamil nadu", "tamilnadu", "tn"],
+            "Madurai": ["madurai"],
+        }
+        for location, keywords in location_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("location", location)
+                    break
 
         # Languages
         for key in ["languagesknown", "language", "languages"]:
             if raw.get(key):
                 add("language", raw.get(key))
+        
+        # Handle language keywords in text
+        language_keywords = {
+            "English": ["english", "fluent english", "english is a must"],
+            "Tamil": ["tamil", "knowing tamil", "tamil is a big plus"],
+        }
+        for language, keywords in language_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("language", language)
+                    break
 
         # Diet & lifestyle
         for key in ["diet", "diet_lifestyle", "lifestyle"]:
             if raw.get(key):
                 add("diet_lifestyle", raw.get(key))
+        
+        # Handle diet/lifestyle keywords in text
+        diet_keywords = {
+            "vegetarian": ["vegetarian", "veg"],
+            "non-smoker": ["non-smoker", "non smoker", "no smoking", "doesn't smoke"],
+            "non-drinker": ["non-drinker", "non drinker", "no drinking", "doesn't drink"],
+        }
+        for diet, keywords in diet_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("diet_lifestyle", diet)
+                    break
 
         # Religion / caste
         for key in ["religion", "caste", "religion_caste", "community"]:
@@ -175,31 +262,63 @@ async def extract_with_advanced_ner(text: str) -> Dict[str, Any]:
         for key in ["spiritual", "spiritual_religious", "beliefs"]:
             if raw.get(key):
                 add("spiritual_religious", raw.get(key))
+        
+        # Handle spiritual/religious keywords in text
+        spiritual_keywords = {
+            "spiritual but not overly religious": ["spiritual but not overly religious", "spiritual but not religious"],
+            "spiritual": ["spiritual", "spirituality"],
+            "religious": ["religious", "religion"],
+        }
+        for spiritual, keywords in spiritual_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("spiritual_religious", spiritual)
+                    break
 
         # Hobbies / interests
         for key in ["hobbies", "interests", "hobbies_interests"]:
             if raw.get(key):
                 add("hobbies_interests", raw.get(key))
-        # Heuristics for travel & volunteering
-        text_l = (text or "").lower()
-        if "travel" in text_l or "travelling" in text_l or "traveling" in text_l:
-            add("hobbies_interests", "traveling")
-        if "volunteer" in text_l or "community work" in text_l:
-            add("hobbies_interests", "volunteering")
+        
+        # Handle hobbies/interests keywords in text
+        hobby_keywords = {
+            "traveling": ["travel", "travelling", "traveling", "trip", "vacation"],
+            "reading": ["reading", "books", "literature"],
+            "music": ["music", "musical", "singing", "instrument"],
+            "yoga": ["yoga", "meditation"],
+            "classical dance": ["classical dance", "dance", "bharatanatyam", "kathak"],
+            "volunteering": ["volunteer", "community work", "social work"],
+        }
+        for hobby, keywords in hobby_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("hobbies_interests", hobby)
+                    break
 
         # Values / personality
         for key in ["values", "personality", "values_personality_traits", "traits"]:
             if raw.get(key):
                 add("values_personality_traits", raw.get(key))
-        # Additional heuristics from text
-        for phrase in [
-            ("open-minded", "open-minded"),
-            ("respectful", "respectful"),
-            ("traditions", "respectful of traditions"),
-            ("chill", "chill")
-        ]:
-            if phrase[0] in text_l:
-                add("values_personality_traits", phrase[1])
+        
+        # Handle values/personality keywords in text
+        values_keywords = {
+            "honesty": ["honesty", "honest", "truthful"],
+            "patience": ["patience", "patient"],
+            "emotional maturity": ["emotional maturity", "mature", "maturity"],
+            "respectful of traditions": ["traditions", "traditional", "respectful of traditions"],
+            "modern perspectives": ["modern", "modern perspectives", "contemporary"],
+            "personal freedom": ["personal freedom", "freedom", "independence"],
+            "open-minded": ["open-minded", "open minded"],
+            "chill": ["chill", "relaxed", "easy-going"],
+            "family values": ["family values", "family", "family time"],
+            "respects elders": ["respects elders", "respectful of elders", "elder respect"],
+            "enjoys family time": ["enjoys family time", "family time", "spending time with family"],
+        }
+        for value, keywords in values_keywords.items():
+            for keyword in keywords:
+                if keyword in text_l:
+                    add("values_personality_traits", value)
+                    break
 
         # Build concise natural-language summary
         parts: List[str] = []
@@ -227,11 +346,22 @@ async def extract_with_advanced_ner(text: str) -> Dict[str, Any]:
             parts.append(f"values: {', '.join(tags['values_personality_traits'])}")
 
         summary = "; ".join(parts) if parts else "No clear partner preferences detected yet."
+        
+        # Build formatted tags display (one tag per line)
+        formatted_tags = []
+        if any(tags.values()):  # Only show if there are any tags
+            formatted_tags.append("**Extracted Preferences:**")
+            for tag_name, values in tags.items():
+                if values:  # Only show non-empty tags
+                    formatted_tags.append(f"• {tag_name.replace('_', ' ').title()}: {', '.join(values)}")
+        else:
+            formatted_tags.append("No specific preferences detected in this input.")
 
         return {
             "status": "success",
             "summary": summary,
             "tags": tags,
+            "formatted_tags": "\n".join(formatted_tags),
             "metadata": result.get("_metadata", {}),
         }
 
@@ -364,16 +494,17 @@ simple_agent = LlmAgent(
     ),
     instruction=(
         "You are a friendly assistant that helps users define their preferences for their ideal partner using advanced NER extraction. "
-        "CRITICAL: After EVERY user response, you MUST call extract_with_advanced_ner to analyze their input and show a clean summary plus a JSON 'tags' object. "
+        "MANDATORY WORKFLOW: After EVERY user response, you MUST call the extract_with_advanced_ner tool to analyze their input. "
         "Greet ONCE per session (e.g., 'Hi! Great to meet you.'). Do not repeat greetings in later turns. "
         "If the user mentions 'bride', 'groom', 'male', 'female', or similar terms, consider gender captured and move to the next category. "
         "If gender is not clear from their initial message, ask: 'Are you looking for a bride or a groom?' "
         "However, ALWAYS extract any preference information the user provides in any turn (even if unrelated to the current question) and mark that category as captured. "
         "Proceed through categories in this order: gender → age → profession → location → hobbies/interests → education → diet/lifestyle → language → religion/caste → spiritual/religious → values/personality traits. Ask ONE concise question for the next missing category only. "
-        "RESPONSE FORMAT: After each user response: (1) Call extract_with_advanced_ner; (2) Present a short natural-language summary; (3) Print a 'tags' JSON block with the normalized schema; (4) Ask the next question. "
+        "RESPONSE FORMAT: After each user response: (1) ALWAYS call extract_with_advanced_ner tool first; (2) Use the tool's 'summary' field for natural language; (3) MANDATORY: Display the tool's 'formatted_tags' field exactly as returned (shows each tag on its own line with bullet points); (4) Ask the next question. "
         "Never loop on the same category once captured unless the user changes it. Keep prompts short if user sends fillers like 'hey'. "
-        "When all categories are covered or the user says they're done: (1) provide a concise final summary; (2) call extract_with_advanced_ner one final time; (3) print the final 'tags' JSON only. "
-        "Do NOT include emojis or confidence scores."
+        "When all categories are covered or the user says they're done: (1) call extract_with_advanced_ner one final time; (2) use its summary and tags for the final output. "
+        "Do NOT include emojis or confidence scores. ALWAYS use the tool results, never generate tags manually. "
+        "EXAMPLE: After calling the tool, your response should look like: 'I see you're looking for a bride. [Tool's formatted_tags output here] What age range are you looking for?'"
     ),
     tools=[extract_with_advanced_ner],
     output_key="response",
